@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rozpoznawanie emocji</title>
+    <style>
+        .res{
+            width: 100%;
+            height: 100px;
+            color: #a83264;
+            font-size: 28px;
+            padding: 0px;
+            text-transform: uppercase;
+        }
+
+        h2{
+            text-decoration: underline #d991b3;
+            text-decoration-thickness: 3px;
+            text-underline-offset: 6px;
+            font-size: 180%;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        [type=submit]{
+            margin-top: 10px;
+            margin-botton: 10px;
+        }
+
+        button{
+            flex-grow: 1;
+            height: 1.8rem;
+            min-width: 2rem;
+            border: none;
+            border-radius: 0.15rem;
+            background: #d991b3;
+            margin-left: 2px;
+            margin-right: 2px;
+            box-shadow: inset 0 -0.15rem 0 rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color:#ffffff;
+            font-size: 1rem;
+            margin-top: 2px;
+            margin-bottom: 2px;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .start{
+            display: flex;
+            float: left;
+        }
+
+        .stop{
+            display: flex;
+            float: left;
+        }
+
+        .mainDiv{
+            text-align: center;
+        }
+
+        .hd{
+            text-align: center;
+            text-transform: uppercase;
+            border-bottom: 3px solid #a83264;
+        }
+
+        .wynikDiv{
+            border-top: 3px solid #a83264;
+        }
+
+    </style>
+</head>
+<body style="background-color: #edd5e1;">
+    <header class="hd"><h1>Rozpoznaj swoją emocję</h1></header>
+    <div class="mainDiv">
+    <h2>Prześlij plik audio</h2>
+    <form id="uploadForm">
+        <input type="file" id="audioFile" accept="audio/*" required>
+        <button type="submit">Prześlij</button>
+    </form>
+    <br/><br/><br/>
+
+        <div class="nagrajDiv">
+        <h2>Nagraj swój plik</h2>
+        <button class="start" onclick="startRecording()">Zacznij nagrywanie</button><br /><br />
+        <button class="stop" onclick="stopRecording()">Zatrzymaj nagrywanie</button>
+        <br />
+        <br />
+        <button class="save" onclick="saveRecording()">Zapisz plik</button>
+        <br />
+        <br />
+        <div id="recording_status"></div>
+        <br /><br />
+        </div>
+
+        <div class="wynikDiv">
+        <h2>Rozpoznana emocja:</h2>
+         <div class="res" id="result"></div>
+        </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = function(event) {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async function() {
+                    console.log('Recording stopped.');
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    console.log('Audio Blob created:', audioBlob);
+
+                    const wavBlob = addWavHeader(audioBlob);
+
+                    const formData = new FormData();
+                    formData.append('file', wavBlob, `recording_${Date.now()}.wav`);
+                    console.log('FormData created:', formData);
+
+                    try {
+                        const response = await fetch('/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const result = await response.json();
+                        console.log('Server response:', result);
+                        document.getElementById('result').textContent = result.output;
+                    } catch (error) {
+                        console.error('Error:', error);
+                    }
+                };
+
+                mediaRecorder.start();
+                document.getElementById('recording_status').textContent = 'Rozpoczęto nagrywanie...';
+
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                alert('Error starting recording. Check console for details.');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                document.getElementById('recording_status').textContent = 'Zatrzymano nagrywanie';
+            }
+        }
+
+        async function saveRecording() {
+            if (audioChunks.length === 0) {
+                alert('No recorded data to save.');
+                return;
+            }
+
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+
+            const fileName = `recording_${Date.now()}.wav`;
+
+            const a = document.createElement('a');
+            const url = URL.createObjectURL(audioBlob);
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 0);
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData();
+            const file = document.getElementById('audioFile').files[0];
+            formData.append('file', file);
+
+            console.log('Uploading file:', file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                console.log('Server response:', result);
+                document.getElementById('result').textContent = result.output;
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        });
+
+        function addWavHeader(audioBlob) {
+            const wavHeader = new ArrayBuffer(44);
+            const view = new DataView(wavHeader);
+
+            view.setUint32(0, 0x52494646, false); // "RIFF"
+            view.setUint32(4, 36 + audioBlob.size, true);
+            view.setUint32(8, 0x57415645, false); // "WAVE"
+            view.setUint32(12, 0x666d7420, false); // "fmt "
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM format
+            view.setUint16(22, 1, true); // Mono
+            view.setUint32(24, 44100, true); // 44.1kHz sample rate
+            view.setUint32(28, 44100 * 2, true); // Byte rate
+            view.setUint16(32, 2, true); // Block align
+            view.setUint16(34, 16, true); // Bits per sample
+            view.setUint32(36, 0x64617461, false); // "data"
+            view.setUint32(40, audioBlob.size, true);
+
+            return new Blob([view, audioBlob], { type: 'audio/wav' });
+        }
+    </script>
+    </div>
+</body>
+</html>
